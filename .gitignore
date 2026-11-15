@@ -1,0 +1,10 @@
+/EFI/BOOT/
+/EFI/OC/
+/efi/config.plist
+*.log
+*.ips
+*.img
+*.dmg
+*.zip
+*.kext/
+.DS_Store

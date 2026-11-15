@@ -1,0 +1,96 @@
+--- a/Modules/GPU/reader.swift
++++ b/Modules/GPU/reader.swift
+@@ -11,6 +11,7 @@
+ 
+ import Cocoa
+ import Kit
++import Darwin
+ 
+ public struct device {
+     public let vendor: String?
+@@ -55,6 +56,9 @@
+     private var framesSubscription: IOReportSubscriptionRef? = nil
+     private var previousFramesCount: Int64 = 0
+     private var previousFramesTime: CFAbsoluteTime = 0
++    #if arch(x86_64)
++    private var previousRTXSample: (flips: UInt64, time: TimeInterval)?
++    #endif
+     
+     public override func setup() {
+         if let list = SystemKit.shared.device.info.gpu {
+@@ -104,6 +108,14 @@
+             return
+         }
+         var devices = self.devices
++
++        #if arch(x86_64)
++        let rtx = accelerators.count == 1 ? accelerators.first : nil
++        let hasRTXDisplay = rtx?["IOClass"] as? String == "NVAccel" &&
++                           (rtx?["IOPCIMatch"] as? String)?.lowercased() == "0x256010de"
++        if !hasRTXDisplay { self.previousRTXSample = nil }
++        let rtxFPS = hasRTXDisplay ? self.readRTXDisplayFPS() : nil
++        #endif
+         
+         for (index, accelerator) in accelerators.enumerated() {
+             guard let IOClass = accelerator.object(forKey: "IOClass") as? String else {
+@@ -137,7 +149,8 @@
+             var type: GPU_types = .unknown
+             
+             let utilization: Int? = stats["Device Utilization %"] as? Int ?? stats["GPU Activity(%)"] as? Int ?? nil
+-            let renderUtilization: Int? = stats["Renderer Utilization %"] as? Int ?? nil
++            let renderUtilization = stats["Renderer Utilization %"] as? Int ??
++                (IOClass == "NVAccel" ? stats["Graphics Engine Utilization %"] as? Int : nil)
+             let tilerUtilization: Int? = stats["Tiler Utilization %"] as? Int ?? nil
+             var temperature: Int? = stats["Temperature(C)"] as? Int ?? nil
+             let fanSpeed: Int? = stats["Fan Speed(%)"] as? Int ?? nil
+@@ -206,6 +219,10 @@
+                 return
+             }
+             
++            #if arch(x86_64)
++            if hasRTXDisplay { self.gpus.list[idx].fps = rtxFPS }
++            #endif
++
+             if let agcInfo = accelerator["AGCInfo"] as? [String: Int], let state = agcInfo["poweredOffByAGC"] {
+                 self.gpus.list[idx].state = state == 0
+             }
+@@ -258,6 +275,25 @@
+     
+     // MARK: - FPS
+     
++    #if arch(x86_64)
++    // This global NullMoth counter measures desktop display flips, not game FPS.
++    private func readRTXDisplayFPS() -> Double? {
++        var flips: UInt64 = 0
++        var size = MemoryLayout<UInt64>.size
++        guard sysctlbyname("debug.nvrmfb_flip_n", &flips, &size, nil, 0) == 0,
++              size == MemoryLayout<UInt64>.size else {
++            self.previousRTXSample = nil
++            return nil
++        }
++        let now = ProcessInfo.processInfo.systemUptime
++        defer { self.previousRTXSample = (flips, now) }
++        guard let previous = self.previousRTXSample, now > previous.time, flips >= previous.flips else {
++            return nil
++        }
++        return Double(flips - previous.flips) / (now - previous.time)
++    }
++    #endif
++
+     private func setupFrames() {
+         let groups = ["DCP", "DCP0", "DCPEXT0", "DCPEXT1", "DCPEXT2", "DCPEXT3"]
+         var merged: CFMutableDictionary? = nil
+--- a/Modules/GPU/popup.swift
++++ b/Modules/GPU/popup.swift
+@@ -238,6 +238,11 @@
+             self.utilizationField?.stringValue = "\(Int(utilization*100))%"
+         }
+         if let utilization = value.renderUtilization {
++            if value.IOClass == "NVAccel" {
++                self.renderField?.toolTip = "RTX graphics engine activity, including compute"
++            } else {
++                self.renderField?.toolTip = nil
++            }
+             self.renderCircle?.toolTip = "\(localizedString("Renderer utilization")): \(Int(utilization.rounded(toPlaces: 2) * 100))%"
+             self.renderCircle?.setValue(utilization)
+             self.renderCircle?.display()

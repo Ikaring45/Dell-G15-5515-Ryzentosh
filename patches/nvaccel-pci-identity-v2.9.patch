@@ -1,0 +1,22 @@
+--- a/kexts/NVRM/accel/nvrm-accel.cpp
++++ b/kexts/NVRM/accel/nvrm-accel.cpp
+@@ -851,6 +851,19 @@
+             // display GPU to a CGL renderer). Only added when nothing else has set them.
+             if (!getProperty("IOAccelRevision")) setProperty("IOAccelRevision", 2ULL, 32);
+             if (!getProperty("IOVARendererID")) setProperty("IOVARendererID", 0x01020000ULL | (gAccelTab.count() & 0xffff), 32);
++#ifndef NMX_ACCEL
++            // Monitoring tools correlate this accelerator with its PCI device by the full ID.
++            // Preserve the wildcard in the original IOKit matching personality.
++            if (IOPCIDevice *pci = OSDynamicCast(IOPCIDevice, provider)) {
++                const uint32_t id = (static_cast<uint32_t>(pci->configRead16(0x02)) << 16)
++                                    | pci->configRead16(0x00);
++                char match[11] = "0x00000000";
++                const char digits[] = "0123456789abcdef";
++                for (unsigned i = 0; i < 8; ++i)
++                    match[2 + i] = digits[(id >> (28 - 4 * i)) & 0xf];
++                setProperty("IOPCIMatch", match);
++            }
++#endif
+             registerService(); ALOG("registerService() called — Metal can now find MetalPluginName=%s", "NVMTLDriver");
+             gAccelTab.add(this, scope.multi, provider->getProperty("nullmoth-auto-primary") == kOSBooleanTrue);
+             gAccel = gAccelTab.primary(); gEnableAccel = &NVAccel::enableFromHook;

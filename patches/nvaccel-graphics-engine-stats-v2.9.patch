@@ -1,0 +1,15 @@
+--- a/kexts/NVRM/accel/nvrm-accel.cpp
++++ b/kexts/NVRM/accel/nvrm-accel.cpp
+@@ -1096,8 +1096,10 @@
+         }
+         const char *keys[] = { "Device Utilization %", "GPU Core Utilization %",
+                                "GPU Memory Utilization %", "GPU Video Engine Utilization %",
+-                               "GPU Video Decode Utilization %" };
+-        const unsigned values[] = { sample.gr, sample.gr, sample.fb, sample.nvenc, sample.nvdec };
++                               "GPU Video Decode Utilization %", "Graphics Engine Utilization %" };
++        // GR measures the graphics engine, including compute work. It is not a render-only counter.
++        const unsigned values[] = { sample.gr, sample.gr, sample.fb, sample.nvenc, sample.nvdec,
++                                    sample.gr };
+         for (unsigned i = 0; i < sizeof values / sizeof values[0]; i++) {
+             if (valid) {
+                 OSNumber *n = OSNumber::withNumber((unsigned long long)((values[i] + 50) / 100), 32);
